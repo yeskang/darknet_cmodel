@@ -74,23 +74,30 @@ void ysk_gemm_nn(int M, int N, int K, float ALPHA,
 	for(i = 0; i < M; ++i){
 		for(j = 0; j < N; ++j){
 			float sum = .0f;
+
 			for(k = 0; k < K; ++k){
 				float wgt = A[i*K+k];
 				float input = B[k*N+j];
 				int8_t qa, qb;
 
 				// will be added to functions.h
-				if (wgt >= 1.984375) wgt = 1.984375;
-				else if (wgt <= -2) wgt = -2;
-				if (input >= 15.875) input = 15.875;
-				else if (input <= -16) input = -16;
+				//if (wgt >= 1.984375) wgt = 1.984375;
+				//else if (wgt <= -2) wgt = -2;
+				//if (input >= 15.875) input = 15.875;
+				//else if (input <= -16) input = -16;
+
+                //wrong rounding
 				qa = ((int8_t)(wgt*64)); // -2^7 ~
-				qb = ((int8_t)(input*8+0.5)); // -2^7 ~
+				qb = ((int8_t)(input*8)); // -2^7 ~
+                //this is correct rounding
+				//qa = (wgt>0)?(int8_t)(wgt*64+0.5):(int8_t)(wgt*64-0.5); // -2^7 ~
+				//qb = (input>0)? (int8_t)(input*8+0.5):(int8_t)(input*8-0.5); // -2^7 ~
+
 				// integer mult
 				int32_t qacc = (int32_t)(sum*(1<<16)); //-2^31 ~
 				int16_t qmult = qa * qb; // -2^14 ~ --> -2^5 ~
 				qacc = (int32_t)qmult*(1<<7) + qacc;
-				sum = (float) qacc / (1<<16);
+			    sum = (float) qacc / (1<<16);
 			}
 			int8_t qb;
 			int32_t qacc;
