@@ -1,0 +1,5 @@
+classes= 98
+train  = ./DAC_train.txt
+names  = ./DAC_names.txt
+backup = ./weight
+
