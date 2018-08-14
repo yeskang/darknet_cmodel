@@ -9,6 +9,106 @@
 /* sy_added */
 static int lnum = 0;
 
+void ysk_bngemm_nn(int M, int N, int K, float ALPHA, 
+        float *A, int lda, 
+        float *B, int ldb,
+        float *C, int ldc,
+		float* mean, float* variance, float* scale, float* biase)
+{
+	int8_t *bwgt, *bbis, *binp, *bout;
+	float *inp_m;
+    int i,j,k;
+	float bn_a, bn_b;
+    #pragma omp parallel for
+	for(i = 0; i < M; ++i) {
+		bn_a = mean[i];
+		bn_b = sqrt(variance[i]) + 0.000001f;
+		for(j = 0; j < N; ++j) {
+			float sum = .0f;
+			for(k = 0; k < K; ++k) {
+				int8_t qb, qa;
+				float bn_w, input;
+				if (lnum == 0){
+					bn_w = A[i*K+k];
+					input = B[k*N+j]*(scale[i]/bn_b);
+				} else {
+					bn_w  = A[i*K+k]*(scale[i]/bn_b);
+					input = B[k*N+j];
+				}
+				if (bn_w >= 1.984375) bn_w = 1.984375;
+				else if (bn_w <= -2) bn_w = -2;
+				if (input >= 15.875) input = 15.875;
+				else if (input <= -16) input = -16;
+				qa = ((int8_t)(bn_w*64));
+				qb = ((int8_t)(input*8+0.5));
+
+				// integer MAC
+				int32_t qacc = (int32_t)(sum*(1<<16));
+				int16_t qmult = qa * qb;
+				qacc = (int32_t)qmult*(1<<7) + qacc;
+				sum = (float) qacc / (1<<16);
+			}
+			float bn_biase = (biase[i] - ((bn_a/bn_b)*scale[i]));
+			int8_t qbn_biase;
+			if (bn_biase >= 7.937500) bn_biase = 7.937500; // 4-4
+			else if (bn_biase <= -8) bn_biase = -8;
+			qbn_biase = ((int8_t)(bn_biase*16));
+
+			// integer MAC
+			int32_t qacc = (int32_t)(sum*(1<<16));
+			qacc = (int32_t)qbn_biase*(1<<12) + qacc;  // 12 = 16 - fraction_bit
+			sum  = (float)qacc / (1<<16);
+			C[i*N+j] = sum;
+		}
+	}
+}
+
+void ysk_gemm_nn(int M, int N, int K, float ALPHA, 
+        float *A, int lda, 
+        float *B, int ldb,
+        float *C, int ldc, const float* biase)
+{
+    int i,j,k;
+	int8_t *bwgt, *bbis, *binp, *bout;
+    #pragma omp parallel for
+	for(i = 0; i < M; ++i){
+		for(j = 0; j < N; ++j){
+			float sum = .0f;
+			for(k = 0; k < K; ++k){
+				float wgt = A[i*K+k];
+				float input = B[k*N+j];
+				int8_t qa, qb;
+
+				// will be added to functions.h
+				if (wgt >= 1.984375) wgt = 1.984375;
+				else if (wgt <= -2) wgt = -2;
+				if (input >= 15.875) input = 15.875;
+				else if (input <= -16) input = -16;
+				qa = ((int8_t)(wgt*64)); // -2^7 ~
+				qb = ((int8_t)(input*8+0.5)); // -2^7 ~
+				// integer mult
+				int32_t qacc = (int32_t)(sum*(1<<16)); //-2^31 ~
+				int16_t qmult = qa * qb; // -2^14 ~ --> -2^5 ~
+				qacc = (int32_t)qmult*(1<<7) + qacc;
+				sum = (float) qacc / (1<<16);
+			}
+			int8_t qb;
+			int32_t qacc;
+
+			float q_bias = biase[i];
+			if (q_bias >= 7.937500)
+				q_bias = 7.937500;
+			else if (q_bias <= -8)
+				q_bias = -8;
+			qb = (int8_t)(q_bias*16);
+			qacc = (int32_t)(sum*(1<<16));
+			qacc = (int32_t)qb*(1<<12) + qacc;
+			sum  = (float) qacc / (1<<16);
+			C[i*N+j] = sum;
+		}
+    }
+}
+
 void sy_bngemm(int TA, int TB, int M, int N, int K, float ALPHA, 
         float *A, int lda, 
         float *B, int ldb,
@@ -18,6 +118,7 @@ void sy_bngemm(int TA, int TB, int M, int N, int K, float ALPHA,
 {
     sy_bngemm_cpu( TA,  TB,  M, N, K, ALPHA,A,lda, B, ldb,BETA,C,ldc, mean, variance, scale, biase, toggle);
 }
+
 
 void sy_bngemm_nn(int M, int N, int K, float ALPHA, 
         float *A, int lda, 
@@ -154,7 +255,8 @@ void sy_bngemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
 		if (toggle == 1)
 	        sy_bngemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc, mean, variance, scale, biase);
 		else if (toggle == 2)
-        	sy_gemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc, biase);
+        	//sy_gemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc, biase);
+        	ysk_gemm_nn(M, N, K, ALPHA,A,lda, B, ldb,C,ldc, biase);
 		else
 			assert(0 && "mm launch failed\n");
 	}

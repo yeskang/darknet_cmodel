@@ -18,6 +18,13 @@ void gemm_cpu(int TA, int TB, int M, int N, int K, float ALPHA,
         float BETA,
         float *C, int ldc);
 
+void ysk_gemm(int TA, int TB, int M, int N, int K, float ALPHA, 
+                    float *A, int lda, 
+                    float *B, int ldb,
+                    float BETA,
+                    float *C, int ldc, 
+					float*, float*, float*, float*, unsigned int);
+
 // syoh added
 void sy_bngemm(int TA, int TB, int M, int N, int K, float ALPHA, 
                     float *A, int lda, 
